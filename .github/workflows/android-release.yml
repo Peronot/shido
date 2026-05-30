@@ -1,0 +1,60 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: "Backend API base URL (example: https://your-backend.onrender.com/api)"
+        required: true
+        type: string
+  release:
+    types: [published]
+
+env:
+  FLUTTER_VERSION: "3.24.5"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build release APK
+        run: |
+          API_URL="${{ github.event.inputs.api_base_url }}"
+          if [ -z "$API_URL" ]; then
+            API_URL="${{ vars.API_BASE_URL }}"
+          fi
+          if [ -z "$API_URL" ]; then
+            echo "Missing API base URL. Set workflow input api_base_url or repository variable API_BASE_URL"
+            exit 1
+          fi
+          flutter build apk --release --dart-define=API_BASE_URL="$API_URL"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Attach APK to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/app/outputs/flutter-apk/app-release.apk

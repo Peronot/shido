@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -6,6 +7,8 @@ import '../auth/auth_controller.dart';
 import 'api_config.dart';
 
 class ResourceApi {
+  static const Duration _requestTimeout = Duration(seconds: 25);
+
   Map<String, String> _authHeaders({bool withJson = false}) {
     final token = AuthController.accessToken.value;
     final headers = <String, String>{};
@@ -31,15 +34,26 @@ class ResourceApi {
     return fallback;
   }
 
+  Future<void> _warmupServer() async {
+    try {
+      final uri = Uri.parse('${ApiConfig.baseUrl}/health');
+      await http.get(uri).timeout(_requestTimeout);
+    } catch (_) {
+      // Ignore warmup failures; real request handles errors.
+    }
+  }
+
   Future<List<Map<String, dynamic>>> list(
     String resource, {
     int limit = 50,
   }) async {
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/resources/$resource?limit=$limit');
+      final uri = Uri.parse(
+        '${ApiConfig.baseUrl}/resources/$resource?limit=$limit',
+      );
       final response = await http
           .get(uri, headers: _authHeaders())
-          .timeout(const Duration(seconds: 8));
+          .timeout(_requestTimeout);
       if (response.statusCode != 200) {
         throw Exception(
           _extractErrorMessage(
@@ -74,7 +88,7 @@ class ResourceApi {
           headers: _authHeaders(withJson: true),
           body: jsonEncode(payload),
         )
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 201) {
       throw Exception(
@@ -93,7 +107,7 @@ class ResourceApi {
     final uri = Uri.parse('${ApiConfig.baseUrl}/resources/$resource/$id');
     final response = await http
         .get(uri, headers: _authHeaders())
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       throw Exception(
@@ -120,7 +134,7 @@ class ResourceApi {
           headers: _authHeaders(withJson: true),
           body: jsonEncode(payload),
         )
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       throw Exception(
@@ -139,7 +153,7 @@ class ResourceApi {
     final uri = Uri.parse('${ApiConfig.baseUrl}/resources/$resource/$id');
     final response = await http
         .delete(uri, headers: _authHeaders())
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       throw Exception(
@@ -169,7 +183,7 @@ class ResourceApi {
             'password': password,
           }),
         )
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 201) {
       throw Exception(
@@ -197,13 +211,26 @@ class ResourceApi {
       payload['phone'] = loginInput;
     }
 
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload),
-        )
-        .timeout(const Duration(seconds: 8));
+    http.Response response;
+    try {
+      response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(_requestTimeout);
+    } on TimeoutException {
+      // Render free tier can sleep; wake once then retry login.
+      await _warmupServer();
+      response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(_requestTimeout);
+    }
 
     if (response.statusCode != 200) {
       throw Exception(
@@ -231,7 +258,7 @@ class ResourceApi {
             'provider': provider,
           }),
         )
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       throw Exception(
@@ -260,7 +287,7 @@ class ResourceApi {
             'new_password': newPassword,
           }),
         )
-        .timeout(const Duration(seconds: 8));
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       throw Exception(

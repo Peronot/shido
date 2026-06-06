@@ -9,7 +9,7 @@ class ShidoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Shido App v2',
+      title: 'Shido App',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       home: const SplashScreen(),

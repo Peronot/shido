@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_application_1/app/shido_app.dart';
+import 'package:shido_app/app/shido_app.dart';
 
 void main() {
   testWidgets('Shido app shows bottom navigation labels', (

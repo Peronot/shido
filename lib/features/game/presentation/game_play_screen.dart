@@ -1,14 +1,27 @@
 import 'package:flutter/material.dart';
+import '../../../core/network/resource_api.dart';
 import '../../../core/ui/app_alerts.dart';
 
 class GamePlayScreen extends StatefulWidget {
-  const GamePlayScreen({super.key});
+  const GamePlayScreen({
+    super.key,
+    required this.team1Name,
+    required this.team2Name,
+    this.gameId,
+    this.winningScore = 101,
+  });
+
+  final String team1Name;
+  final String team2Name;
+  final String? gameId;
+  final int winningScore;
 
   @override
   State<GamePlayScreen> createState() => _GamePlayScreenState();
 }
 
 class _GamePlayScreenState extends State<GamePlayScreen> {
+  final ResourceApi _api = ResourceApi();
   int team1Total = 0;
   int team2Total = 0;
   List<Map<String, int>> rounds = [];
@@ -40,9 +53,14 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
     _checkWinner();
   }
 
-  void _checkWinner() {
-    if (team1Total >= 101 || team2Total >= 101) {
-      String winner = team1Total >= 101 ? "Team 1" : "Team 2";
+  Future<void> _checkWinner() async {
+    if (team1Total >= widget.winningScore ||
+        team2Total >= widget.winningScore) {
+      final winner = team1Total >= widget.winningScore
+          ? widget.team1Name
+          : widget.team2Name;
+      await _saveFinishedGame(winner);
+      if (!mounted) return;
       AppAlerts.confirm(
         context,
         title: 'Game Over',
@@ -53,6 +71,39 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
         },
       );
     }
+  }
+
+  Future<void> _saveFinishedGame(String winner) async {
+    final gameId = widget.gameId;
+    if (gameId == null || gameId.isEmpty) return;
+
+    final finishedAt = DateTime.now().toUtc().toIso8601String();
+    await _api.update('games', gameId, {
+      'status': 'finished',
+      'finished_at': finishedAt,
+      'team1_name': widget.team1Name,
+      'team2_name': widget.team2Name,
+      'team1_score': team1Total,
+      'team2_score': team2Total,
+      'winner': winner,
+      'rounds': rounds,
+    });
+
+    await _api.create('reports', {
+      'report_type': 'Game result',
+      'format': 'local',
+      'game_id': gameId,
+      'title': '${widget.team1Name} vs ${widget.team2Name}',
+      'summary':
+          '$winner won ${team1Total.toString()} - ${team2Total.toString()}',
+      'winner': winner,
+      'team1_name': widget.team1Name,
+      'team2_name': widget.team2Name,
+      'team1_score': team1Total,
+      'team2_score': team2Total,
+      'round_count': rounds.length,
+      'created_at': finishedAt,
+    });
   }
 
   @override
@@ -77,7 +128,11 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildScoreColumn('TEAM 1', team1Total, const Color(0xFF0E7490)),
+                _buildScoreColumn(
+                  widget.team1Name,
+                  team1Total,
+                  const Color(0xFF0E7490),
+                ),
                 const Text(
                   'VS',
                   style: TextStyle(
@@ -86,11 +141,15 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
                     color: Color(0xFF334155),
                   ),
                 ),
-                _buildScoreColumn('TEAM 2', team2Total, const Color(0xFF0F766E)),
+                _buildScoreColumn(
+                  widget.team2Name,
+                  team2Total,
+                  const Color(0xFF0F766E),
+                ),
               ],
             ),
           ),
-          
+
           // Rounds List
           Expanded(
             child: ListView.builder(
@@ -101,14 +160,19 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
                   title: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Text(
-                        '${rounds[index]['t1']}',
-                        style: const TextStyle(fontSize: 18, color: Color(0xFF0E7490)),
+                      _buildRoundScore(
+                        widget.team1Name,
+                        rounds[index]['t1'] ?? 0,
+                        const Color(0xFF0E7490),
                       ),
-                      const Text('-', style: TextStyle(color: Color(0xFF64748B))),
-                      Text(
-                        '${rounds[index]['t2']}',
-                        style: const TextStyle(fontSize: 18, color: Color(0xFF0F766E)),
+                      const Text(
+                        '-',
+                        style: TextStyle(color: Color(0xFF64748B)),
+                      ),
+                      _buildRoundScore(
+                        widget.team2Name,
+                        rounds[index]['t2'] ?? 0,
+                        const Color(0xFF0F766E),
                       ),
                     ],
                   ),
@@ -133,9 +197,19 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _buildScoreField(_t1Controller, 'Team 1 Score')),
+                    Expanded(
+                      child: _buildScoreField(
+                        _t1Controller,
+                        '${widget.team1Name} Score',
+                      ),
+                    ),
                     const SizedBox(width: 16),
-                    Expanded(child: _buildScoreField(_t2Controller, 'Team 2 Score')),
+                    Expanded(
+                      child: _buildScoreField(
+                        _t2Controller,
+                        '${widget.team2Name} Score',
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -151,7 +225,10 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
                       ),
                     ),
                     onPressed: _addRound,
-                    child: const Text('ADD ROUND', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      'ADD ROUND',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
               ],
@@ -165,9 +242,41 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
   Widget _buildScoreColumn(String name, int score, Color color) {
     return Column(
       children: [
-        Text(name, style: const TextStyle(fontSize: 16, color: Color(0xFF475569))),
-        Text('$score', style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: color)),
+        SizedBox(
+          width: 130,
+          child: Text(
+            name,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 16, color: Color(0xFF475569)),
+          ),
+        ),
+        Text(
+          '$score',
+          style: TextStyle(
+            fontSize: 48,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildRoundScore(String name, int score, Color color) {
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
+          Text('$score', style: TextStyle(fontSize: 18, color: color)),
+        ],
+      ),
     );
   }
 
@@ -178,13 +287,14 @@ class _GamePlayScreenState extends State<GamePlayScreen> {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(color: Color(0xFF475569)),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         filled: true,
         fillColor: Colors.white,
       ),
-      style: const TextStyle(color: Color(0xFF0F172A), fontWeight: FontWeight.w600),
+      style: const TextStyle(
+        color: Color(0xFF0F172A),
+        fontWeight: FontWeight.w600,
+      ),
     );
   }
 }

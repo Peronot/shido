@@ -1,24 +1,35 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/auth/auth_controller.dart';
 import '../../../core/network/resource_api.dart';
 import '../../../core/ui/app_widgets.dart';
 import '../../../core/ui/async_state_widgets.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  final ResourceApi _api = ResourceApi();
+  late Future<List<List<Map<String, dynamic>>>> _dashboardFuture;
+  late Future<List<Map<String, dynamic>>> _notificationsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _dashboardFuture = Future.wait([
+      _api.list('games'),
+      _api.list('players'),
+      _api.list('notifications'),
+      _api.list('game_teams', limit: 500),
+    ]);
+    _notificationsFuture = _api.list('notifications');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final api = ResourceApi();
-    final userId = (AuthController.currentUser.value?['id'] ?? '').toString();
-
-    bool belongsToUser(Map<String, dynamic> row, String foreignKey) {
-      if (userId.isEmpty) return false;
-      final value = row[foreignKey];
-      return value != null && value.toString() == userId;
-    }
-
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -41,9 +52,9 @@ class DashboardScreen extends StatelessWidget {
               children: [
                 Text(
                   'Dashboard',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontSize: 30,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontSize: 30),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -57,12 +68,7 @@ class DashboardScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           FutureBuilder<List<List<Map<String, dynamic>>>>(
-            future: Future.wait([
-              api.list('games'),
-              api.list('players'),
-              api.list('notifications'),
-              api.list('game_teams', limit: 500),
-            ]),
+            future: _dashboardFuture,
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done) {
                 return const LoadingState();
@@ -75,15 +81,9 @@ class DashboardScreen extends StatelessWidget {
               final allNotifications = snapshot.data?[2] ?? [];
               final allTeams = snapshot.data?[3] ?? [];
 
-              final games = allGames
-                  .where((g) => belongsToUser(g, 'created_by_user_id'))
-                  .toList();
-              final players = allPlayers
-                  .where((p) => belongsToUser(p, 'user_id'))
-                  .toList();
-              final totalNotifications = allNotifications
-                  .where((n) => belongsToUser(n, 'user_id'))
-                  .length;
+              final games = allGames;
+              final players = allPlayers;
+              final totalNotifications = allNotifications.length;
               final activeGames = games
                   .where((g) => (g['status'] ?? '').toString() == 'active')
                   .length;
@@ -101,12 +101,13 @@ class DashboardScreen extends StatelessWidget {
                   GridView(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 320,
-                      mainAxisExtent: 96,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 320,
+                          mainAxisExtent: 96,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
                     children: [
                       MetricTile(
                         label: 'Total Games',
@@ -142,7 +143,8 @@ class DashboardScreen extends StatelessWidget {
                         : Column(
                             children: games.take(5).map((g) {
                               final gameId = (g['id'] ?? '').toString();
-                              final teams = teamsByGame[gameId] ?? const <String>[];
+                              final teams =
+                                  teamsByGame[gameId] ?? const <String>[];
                               final title = teams.length >= 2
                                   ? '${teams[0]} vs ${teams[1]}'
                                   : gameId.substring(0, 8);
@@ -191,7 +193,9 @@ class DashboardScreen extends StatelessWidget {
                                         color: isActive
                                             ? const Color(0xFFDCFCE7)
                                             : const Color(0xFFE2E8F0),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
                                       ),
                                       child: Text(
                                         (g['status'] ?? '-').toString(),
@@ -217,7 +221,7 @@ class DashboardScreen extends StatelessWidget {
           SectionCard(
             title: 'Recent Notifications',
             child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: api.list('notifications'),
+              future: _notificationsFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
                   return const LoadingState();
@@ -225,9 +229,7 @@ class DashboardScreen extends StatelessWidget {
                 if (snapshot.hasError) {
                   return ErrorState(message: snapshot.error.toString());
                 }
-                final notes = (snapshot.data ?? [])
-                    .where((n) => belongsToUser(n, 'user_id'))
-                    .toList();
+                final notes = snapshot.data ?? [];
                 if (notes.isEmpty) {
                   return const EmptyState(message: 'No notifications found');
                 }

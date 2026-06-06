@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/auth/auth_controller.dart';
-import '../../../core/auth/auth_gate.dart';
 import '../../../core/network/resource_api.dart';
 import '../../../core/ui/app_alerts.dart';
 import '../../../core/ui/app_widgets.dart';
@@ -18,24 +16,15 @@ class _PlayersScreenState extends State<PlayersScreen> {
   final ResourceApi _api = ResourceApi();
   late Future<List<Map<String, dynamic>>> _playersFuture;
 
-  Future<List<Map<String, dynamic>>> _loadMyPlayers() async {
-    final all = await _api.list('players');
-    final userId = (AuthController.currentUser.value?['id'] ?? '').toString();
-    if (userId.isEmpty) {
-      return <Map<String, dynamic>>[];
-    }
-    return all.where((p) => (p['user_id'] ?? '').toString() == userId).toList();
-  }
-
   @override
   void initState() {
     super.initState();
-    _playersFuture = _loadMyPlayers();
+    _playersFuture = _api.list('players');
   }
 
   Future<void> _refreshPlayers() async {
     setState(() {
-      _playersFuture = _loadMyPlayers();
+      _playersFuture = _api.list('players');
     });
     await _playersFuture;
   }
@@ -104,11 +93,7 @@ class _PlayersScreenState extends State<PlayersScreen> {
     } catch (e) {
       if (!mounted) return;
       AppAlerts.close(context);
-      AppAlerts.error(
-        context,
-        title: 'Delete Failed',
-        text: e.toString(),
-      );
+      AppAlerts.error(context, title: 'Delete Failed', text: e.toString());
     }
   }
 
@@ -120,8 +105,6 @@ class _PlayersScreenState extends State<PlayersScreen> {
         title: 'Players',
         action: FilledButton.icon(
           onPressed: () async {
-            final allowed = await requireLogin(context);
-            if (!context.mounted || !allowed) return;
             await _openAddPlayerForm();
           },
           icon: const Icon(Icons.person_add),
@@ -242,7 +225,9 @@ class _EditPlayerSheetState extends State<_EditPlayerSheet> {
     try {
       await _api.update('players', id, {
         'full_name': _fullNameCtrl.text.trim(),
-        'nickname': _nickNameCtrl.text.trim().isEmpty ? null : _nickNameCtrl.text.trim(),
+        'nickname': _nickNameCtrl.text.trim().isEmpty
+            ? null
+            : _nickNameCtrl.text.trim(),
         'phone': _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
         'is_active': _isActive,
       });
@@ -252,11 +237,7 @@ class _EditPlayerSheetState extends State<_EditPlayerSheet> {
     } catch (e) {
       if (!mounted) return;
       AppAlerts.close(context);
-      AppAlerts.error(
-        context,
-        title: 'Update Failed',
-        text: e.toString(),
-      );
+      AppAlerts.error(context, title: 'Update Failed', text: e.toString());
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -299,7 +280,9 @@ class _EditPlayerSheetState extends State<_EditPlayerSheet> {
               contentPadding: EdgeInsets.zero,
               title: const Text('Active Player'),
               value: _isActive,
-              onChanged: _isSaving ? null : (value) => setState(() => _isActive = value),
+              onChanged: _isSaving
+                  ? null
+                  : (value) => setState(() => _isActive = value),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -317,9 +300,6 @@ class _EditPlayerSheetState extends State<_EditPlayerSheet> {
 }
 
 class _AddPlayerSheetState extends State<_AddPlayerSheet> {
-  static final RegExp _uuidRegex = RegExp(
-    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
-  );
   final _fullNameCtrl = TextEditingController();
   final _nickNameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -337,28 +317,11 @@ class _AddPlayerSheetState extends State<_AddPlayerSheet> {
 
   Future<void> _savePlayer() async {
     final fullName = _fullNameCtrl.text.trim();
-    final userId = (AuthController.currentUser.value?['id'] ?? '').toString();
     if (fullName.isEmpty) {
       AppAlerts.warning(
         context,
         title: 'Validation',
         text: 'Player name is required.',
-      );
-      return;
-    }
-    if (userId.isEmpty) {
-      AppAlerts.error(
-        context,
-        title: 'Login Required',
-        text: 'Please login first to register a player.',
-      );
-      return;
-    }
-    if (!_uuidRegex.hasMatch(userId)) {
-      AppAlerts.error(
-        context,
-        title: 'Session Error',
-        text: 'Your session is invalid. Please logout and login again.',
       );
       return;
     }
@@ -371,7 +334,6 @@ class _AddPlayerSheetState extends State<_AddPlayerSheet> {
     );
     try {
       await _api.create('players', {
-        'user_id': userId,
         'full_name': fullName,
         'nickname': _nickNameCtrl.text.trim().isEmpty
             ? null
@@ -388,11 +350,7 @@ class _AddPlayerSheetState extends State<_AddPlayerSheet> {
       AppAlerts.close(context);
       final message = e.toString();
       debugPrint('[PLAYERS][CREATE] Failed: $message');
-      AppAlerts.error(
-        context,
-        title: 'Add Player Failed',
-        text: e.toString(),
-      );
+      AppAlerts.error(context, title: 'Add Player Failed', text: e.toString());
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);

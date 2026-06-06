@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/auth/auth_gate.dart';
 import '../../../core/network/resource_api.dart';
 import '../../../core/ui/app_alerts.dart';
 import '../../../core/ui/app_widgets.dart';
 import '../../../core/ui/async_state_widgets.dart';
 import '../../game/presentation/new_game_screen.dart';
+import '../../reports/presentation/game_report_screen.dart';
 
 class GamesScreen extends StatefulWidget {
   const GamesScreen({super.key});
@@ -73,14 +73,20 @@ class _GamesScreenState extends State<GamesScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Edit Game', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                'Edit Game',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: status,
                 items: const [
                   DropdownMenuItem(value: 'active', child: Text('active')),
                   DropdownMenuItem(value: 'finished', child: Text('finished')),
-                  DropdownMenuItem(value: 'cancelled', child: Text('cancelled')),
+                  DropdownMenuItem(
+                    value: 'cancelled',
+                    child: Text('cancelled'),
+                  ),
                 ],
                 onChanged: (v) => status = v ?? 'active',
                 decoration: const InputDecoration(labelText: 'Status'),
@@ -97,15 +103,19 @@ class _GamesScreenState extends State<GamesScreen> {
                 child: FilledButton(
                   onPressed: () async {
                     final parsed = int.tryParse(scoreCtrl.text.trim());
-                      if (parsed == null || parsed <= 0) {
-                        AppAlerts.warning(
-                          sheetContext,
-                          title: 'Validation',
-                          text: 'Winning score must be a valid number.',
-                        );
-                        return;
-                      }
-                    AppAlerts.loading(sheetContext, title: 'Updating', text: 'Updating game...');
+                    if (parsed == null || parsed <= 0) {
+                      AppAlerts.warning(
+                        sheetContext,
+                        title: 'Validation',
+                        text: 'Winning score must be a valid number.',
+                      );
+                      return;
+                    }
+                    AppAlerts.loading(
+                      sheetContext,
+                      title: 'Updating',
+                      text: 'Updating game...',
+                    );
                     try {
                       await _api.update('games', id, {
                         'status': status,
@@ -133,7 +143,11 @@ class _GamesScreenState extends State<GamesScreen> {
       },
     );
     if (updated == true && mounted) {
-      AppAlerts.success(context, title: 'Success', text: 'Game updated successfully.');
+      AppAlerts.success(
+        context,
+        title: 'Success',
+        text: 'Game updated successfully.',
+      );
       await _refreshGames();
     }
   }
@@ -155,13 +169,28 @@ class _GamesScreenState extends State<GamesScreen> {
       await _api.remove('games', id);
       if (!mounted) return;
       AppAlerts.close(context);
-      AppAlerts.success(context, title: 'Deleted', text: 'Game deleted successfully.');
+      AppAlerts.success(
+        context,
+        title: 'Deleted',
+        text: 'Game deleted successfully.',
+      );
       await _refreshGames();
     } catch (e) {
       if (!mounted) return;
       AppAlerts.close(context);
       AppAlerts.error(context, title: 'Delete Failed', text: e.toString());
     }
+  }
+
+  Future<void> _openReport(Map<String, dynamic> game) async {
+    final id = (game['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => GameReportScreen(gameId: id)),
+    );
+    if (!mounted) return;
+    await _refreshGames();
   }
 
   @override
@@ -172,8 +201,6 @@ class _GamesScreenState extends State<GamesScreen> {
         title: 'Games',
         action: FilledButton.icon(
           onPressed: () async {
-            final allowed = await requireLogin(context);
-            if (!context.mounted || !allowed) return;
             await Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const NewGameScreen()),
@@ -192,10 +219,7 @@ class _GamesScreenState extends State<GamesScreen> {
           ),
           label: const Text(
             'New Game',
-            style: TextStyle(
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.2),
           ),
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF0E7490),
@@ -210,10 +234,16 @@ class _GamesScreenState extends State<GamesScreen> {
         child: FutureBuilder<List<Map<String, dynamic>>>(
           future: _gamesFuture,
           builder: (context, snapshot) {
-            if (snapshot.connectionState != ConnectionState.done) return const LoadingState();
-            if (snapshot.hasError) return ErrorState(message: snapshot.error.toString());
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LoadingState();
+            }
+            if (snapshot.hasError) {
+              return ErrorState(message: snapshot.error.toString());
+            }
             final games = snapshot.data ?? [];
-            if (games.isEmpty) return const EmptyState(message: 'No games found');
+            if (games.isEmpty) {
+              return const EmptyState(message: 'No games found');
+            }
             return RefreshIndicator(
               onRefresh: _refreshGames,
               child: ListView.separated(
@@ -224,7 +254,9 @@ class _GamesScreenState extends State<GamesScreen> {
                 itemBuilder: (context, index) {
                   final g = games[index];
                   final gameId = (g['id'] ?? '-').toString();
-                  final shortId = gameId.length >= 8 ? gameId.substring(0, 8) : gameId;
+                  final shortId = gameId.length >= 8
+                      ? gameId.substring(0, 8)
+                      : gameId;
                   final startedAt = (g['started_at'] ?? '').toString();
                   final teamNames = _teamsByGameId[gameId] ?? const <String>[];
                   final gameTitle = teamNames.length >= 2
@@ -232,6 +264,7 @@ class _GamesScreenState extends State<GamesScreen> {
                       : 'Game $shortId';
 
                   return ListTile(
+                    onTap: () => _openReport(g),
                     leading: CircleAvatar(child: Text('${index + 1}')),
                     title: Text(gameTitle),
                     subtitle: Text(
@@ -239,17 +272,38 @@ class _GamesScreenState extends State<GamesScreen> {
                           ? 'Status: ${g['status'] ?? '-'}'
                           : 'Status: ${g['status'] ?? '-'} • Date: ${startedAt.split('T').first}',
                     ),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        if (value == 'edit') {
-                          await _editGame(g);
-                        } else if (value == 'delete') {
-                          await _deleteGame(g);
-                        }
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit')),
-                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Tooltip(
+                          message: 'Open report',
+                          child: IconButton(
+                            onPressed: () => _openReport(g),
+                            icon: const Icon(Icons.assessment_outlined),
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          onSelected: (value) async {
+                            if (value == 'report') {
+                              await _openReport(g);
+                            } else if (value == 'edit') {
+                              await _editGame(g);
+                            } else if (value == 'delete') {
+                              await _deleteGame(g);
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'report',
+                              child: Text('Report'),
+                            ),
+                            PopupMenuItem(value: 'edit', child: Text('Edit')),
+                            PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Delete'),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   );

@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../core/auth/auth_controller.dart';
-import '../core/security/security_service.dart';
-import '../core/ui/app_alerts.dart';
-import '../features/auth/presentation/login_screen.dart';
 import '../features/clubs/presentation/clubs_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/games/presentation/games_screen.dart';
@@ -27,7 +23,6 @@ class MainNavigation extends StatefulWidget {
 
 class _MainNavigationState extends State<MainNavigation> {
   int _index = 0;
-  bool _unlockChecked = false;
 
   final items = const [
     _NavItem('Dashboard', Icons.dashboard_outlined, DashboardScreen()),
@@ -46,107 +41,10 @@ class _MainNavigationState extends State<MainNavigation> {
   ];
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _runSecurityUnlock());
-  }
-
-  Future<void> _runSecurityUnlock() async {
-    if (!mounted || _unlockChecked || !AuthController.isLoggedIn) return;
-    _unlockChecked = true;
-    if (AuthController.skipNextSecurityUnlock) {
-      AuthController.skipNextSecurityUnlock = false;
-      return;
-    }
-
-    final bioEnabled = await SecurityService.getBiometricEnabled();
-    final pinEnabled = await SecurityService.hasPin();
-    final canUseBio = await SecurityService.canUseBiometric();
-
-    if (bioEnabled) {
-      if (canUseBio) {
-        final ok = await SecurityService.authenticateBiometric();
-        if (ok || !mounted) return;
-      } else if (!pinEnabled) {
-        // Do not lock users out when biometric is enabled but unavailable on this device/browser.
-        await SecurityService.setBiometricEnabled(false);
-        if (!mounted) return;
-        AppAlerts.info(
-          context,
-          title: 'Biometric Disabled',
-          text: 'This device/browser does not support biometric unlock.',
-        );
-        return;
-      }
-    }
-
-    if (pinEnabled && mounted) {
-      final pinOk = await _askPinDialog();
-      if (pinOk || !mounted) return;
-    }
-
-    if (mounted) {
-      AppAlerts.error(
-        context,
-        title: 'Access Denied',
-        text: 'Authentication failed. Please login again.',
-      );
-      AuthController.logout();
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-        (_) => false,
-      );
-    }
-  }
-
-  Future<bool> _askPinDialog() async {
-    final pinCtrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Enter PIN'),
-          content: TextField(
-            controller: pinCtrl,
-            obscureText: true,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'PIN code'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Verify'),
-            ),
-          ],
-        );
-      },
-    );
-    if (ok != true) return false;
-    return SecurityService.verifyPin(pinCtrl.text.trim());
-  }
-
-  @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 1100;
-    final currentUser = AuthController.currentUser.value;
-    final isAdmin =
-        (currentUser?['is_admin'] == true) ||
-        (currentUser?['role'] ?? '').toString().toLowerCase() == 'admin';
 
     if (isDesktop) {
-      if (!isAdmin) {
-        return Scaffold(
-          appBar: AppBar(title: Text(items[_index].title)),
-          body: items[_index].screen,
-        );
-      }
-
       return Scaffold(
         body: Row(
           children: [
@@ -187,7 +85,7 @@ class _MainNavigationState extends State<MainNavigation> {
     return Scaffold(
       appBar: AppBar(
         title: Text(items[_index].title),
-        automaticallyImplyLeading: isAdmin,
+        automaticallyImplyLeading: true,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -198,93 +96,42 @@ class _MainNavigationState extends State<MainNavigation> {
           ),
         ),
       ),
-      drawer: isAdmin
-          ? Drawer(
-              child: ListView(
-                children: [
-                  const DrawerHeader(
-                    decoration: BoxDecoration(color: Color(0xFF1D4ED8)),
-                    child: Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Text(
-                        'Shido App',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
+      drawer: Drawer(
+        child: ListView(
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Color(0xFF1D4ED8)),
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Text(
+                  'Shido App',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
                   ),
-                  for (var i = 0; i < items.length; i++)
-                    ListTile(
-                      leading: Icon(items[i].icon),
-                      title: Text(items[i].title),
-                      selected: _index == i,
-                      onTap: () {
-                        if (items[i].title == 'Profile' &&
-                            !AuthController.isLoggedIn) {
-                          Navigator.pop(context);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const LoginScreen(),
-                            ),
-                          );
-                          return;
-                        }
-                        setState(() => _index = i);
-                        Navigator.pop(context);
-                      },
-                    ),
-                  const Divider(),
-                  ValueListenableBuilder<Map<String, dynamic>?>(
-                    valueListenable: AuthController.currentUser,
-                    builder: (context, user, _) {
-                      if (user == null) {
-                        return ListTile(
-                          leading: const Icon(Icons.login),
-                          title: const Text('Login'),
-                          onTap: () {
-                            Navigator.pop(context);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const LoginScreen(),
-                              ),
-                            );
-                          },
-                        );
-                      }
-
-                      return ListTile(
-                        leading: const Icon(Icons.logout),
-                        title: const Text('Logout'),
-                        onTap: () {
-                          AuthController.logout();
-                          setState(() => _index = 0);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
-                ],
+                ),
               ),
-            )
-          : null,
+            ),
+            for (var i = 0; i < items.length; i++)
+              ListTile(
+                leading: Icon(items[i].icon),
+                title: Text(items[i].title),
+                selected: _index == i,
+                onTap: () {
+                  setState(() => _index = i);
+                  Navigator.pop(context);
+                },
+              ),
+          ],
+        ),
+      ),
       body: items[_index].screen,
       bottomNavigationBar: NavigationBar(
         height: 72,
         selectedIndex: mobileIndexes.indexOf(current),
         onDestinationSelected: (value) {
           final target = mobileIndexes[value];
-          if (items[target].title == 'Profile' && !AuthController.isLoggedIn) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LoginScreen()),
-            );
-            return;
-          }
           setState(() => _index = target);
         },
         destinations: const [

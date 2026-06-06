@@ -4,12 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/auth/auth_controller.dart';
 import '../../../core/network/resource_api.dart';
 import '../../../core/security/security_service.dart';
 import '../../../core/ui/app_alerts.dart';
 import '../../../core/ui/async_state_widgets.dart';
-import '../../auth/presentation/login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -21,7 +19,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _api = ResourceApi();
   bool _pushNotifications = true;
-  bool _faceId = true;
   final _picker = ImagePicker();
 
   @override
@@ -32,38 +29,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _loadPrefs() async {
     final notif = await SecurityService.getNotificationsEnabled();
-    final face = await SecurityService.getBiometricEnabled();
     if (!mounted) return;
     setState(() {
       _pushNotifications = notif;
-      _faceId = face;
     });
   }
 
   Future<Map<String, dynamic>?> _loadProfile() async {
-    final currentUser = AuthController.currentUser.value;
-    final userId = (currentUser?['id'] ?? '').toString().trim();
-    if (userId.isEmpty) return null;
+    final users = await _api.list('users', limit: 1);
+    if (users.isNotEmpty) return users.first;
 
-    final fresh = await _api.getById('users', userId);
-    AuthController.login(
-      {
-        ...(currentUser ?? <String, dynamic>{}),
-        ...fresh,
-      },
-      token: AuthController.accessToken.value,
-    );
-    return fresh;
+    return _api.create('users', {
+      'full_name': 'Local User',
+      'email': 'local@shido.app',
+      'phone': '',
+      'role': 'user',
+      'is_active': true,
+    });
   }
 
   Future<void> _openEditProfile(Map<String, dynamic> user) async {
     final id = (user['id'] ?? '').toString();
     if (id.isEmpty) {
-      AppAlerts.error(
-        context,
-        title: 'Error',
-        text: 'User id not found.',
-      );
+      AppAlerts.error(context, title: 'Error', text: 'User id not found.');
       return;
     }
 
@@ -133,19 +121,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         text: 'Updating profile...',
                       );
                       try {
-                        final updated = await _api.update('users', id, {
+                        await _api.update('users', id, {
                           'full_name': fullNameCtrl.text.trim(),
                           'email': emailCtrl.text.trim().toLowerCase(),
                           'phone': phoneCtrl.text.trim(),
                         });
                         if (!mounted || !sheetContext.mounted) return;
-                        AuthController.login(
-                          {
-                            ...(AuthController.currentUser.value ?? <String, dynamic>{}),
-                            ...updated,
-                          },
-                          token: AuthController.accessToken.value,
-                        );
                         AppAlerts.close(sheetContext);
                         Navigator.pop(sheetContext, true);
                       } catch (e) {
@@ -178,131 +159,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _openPinDialog() async {
-    final pinCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Set PIN Code'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: pinCtrl,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'PIN (4+ digits)'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: confirmCtrl,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Confirm PIN'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-    if (ok != true) return;
-    if (!mounted) return;
-
-    final pin = pinCtrl.text.trim();
-    if (pin.length < 4 || pin != confirmCtrl.text.trim()) {
-      AppAlerts.error(
-        context,
-        title: 'PIN Error',
-        text: 'PIN is invalid or does not match.',
-      );
-      return;
-    }
-    await SecurityService.setPin(pin);
-    if (!mounted) return;
-    AppAlerts.success(context, title: 'Success', text: 'PIN code saved.');
-  }
-
-  Future<void> _openChangePasswordDialog() async {
-    final currentCtrl = TextEditingController();
-    final newCtrl = TextEditingController();
-    final confirmCtrl = TextEditingController();
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Change Password'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: currentCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Current Password'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: newCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'New Password'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: confirmCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Confirm New Password'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Change'),
-            ),
-          ],
-        );
-      },
-    );
-    if (ok != true) return;
-    if (!mounted) return;
-    if (newCtrl.text.trim().length < 6 || newCtrl.text.trim() != confirmCtrl.text.trim()) {
-      AppAlerts.error(context, title: 'Error', text: 'New password is invalid.');
-      return;
-    }
-
-    AppAlerts.loading(context, title: 'Saving', text: 'Changing password...');
-    try {
-      await _api.changePassword(
-        currentPassword: currentCtrl.text,
-        newPassword: newCtrl.text.trim(),
-      );
-      if (!mounted) return;
-      AppAlerts.close(context);
-      AppAlerts.success(context, title: 'Success', text: 'Password changed.');
-    } catch (e) {
-      if (!mounted) return;
-      AppAlerts.close(context);
-      AppAlerts.error(context, title: 'Failed', text: e.toString());
-    }
-  }
-
   Future<void> _openWhatsApp() async {
     final uri = Uri.parse('https://wa.me/252615270078');
     if (await canLaunchUrl(uri)) {
@@ -320,28 +176,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _pickProfilePhoto(Map<String, dynamic> user) async {
     final id = (user['id'] ?? '').toString();
     if (id.isEmpty) return;
-    final image = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (image == null) return;
     if (!mounted || !context.mounted) return;
 
-    AppAlerts.loading(context, title: 'Uploading', text: 'Saving profile photo...');
+    AppAlerts.loading(
+      context,
+      title: 'Uploading',
+      text: 'Saving profile photo...',
+    );
     try {
       final bytes = await image.readAsBytes();
       final mime = image.mimeType ?? 'image/jpeg';
       final base64Data = base64Encode(bytes);
       final dataUrl = 'data:$mime;base64,$base64Data';
 
-      final updated = await _api.update('users', id, {
-        'profile_photo_url': dataUrl,
-      });
+      await _api.update('users', id, {'profile_photo_url': dataUrl});
       if (!mounted) return;
-      AuthController.login(
-        {...(AuthController.currentUser.value ?? <String, dynamic>{}), ...updated},
-        token: AuthController.accessToken.value,
-      );
       AppAlerts.close(context);
       setState(() {});
-      AppAlerts.success(context, title: 'Success', text: 'Profile photo updated.');
+      AppAlerts.success(
+        context,
+        title: 'Success',
+        text: 'Profile photo updated.',
+      );
     } catch (e) {
       if (!mounted) return;
       AppAlerts.close(context);
@@ -351,32 +212,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!AuthController.isLoggedIn) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lock_outline, size: 52),
-              const SizedBox(height: 12),
-              const Text('Profile is available only after login'),
-              const SizedBox(height: 12),
-              FilledButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                  );
-                },
-                child: const Text('Go to Login'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return FutureBuilder<Map<String, dynamic>?>(
       future: _loadProfile(),
       builder: (context, snapshot) {
@@ -435,25 +270,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Text(
                 name,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
                 email,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 19,
-                  color: Colors.grey.shade600,
-                ),
+                style: TextStyle(fontSize: 19, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 4),
               Text(
                 phone,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey.shade500,
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade500),
               ),
               const SizedBox(height: 14),
               Align(
@@ -463,16 +295,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.black,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 26,
+                      vertical: 12,
+                    ),
                   ),
                   child: const Text('Edit profile'),
                 ),
               ),
               const SizedBox(height: 26),
-              Text('Preferences', style: TextStyle(color: Colors.grey.shade600, fontSize: 22)),
+              Text(
+                'Preferences',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 22),
+              ),
               const SizedBox(height: 8),
               Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(22),
+                ),
                 child: Column(
                   children: [
                     SwitchListTile(
@@ -486,51 +326,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         AppAlerts.info(
                           context,
                           title: 'Preference Updated',
-                          text: 'Push notifications ${value ? 'enabled' : 'disabled'}.',
+                          text:
+                              'Push notifications ${value ? 'enabled' : 'disabled'}.',
                         );
                       },
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      secondary: const Icon(Icons.face_outlined),
-                      title: const Text('Face ID'),
-                      value: _faceId,
-                      onChanged: (value) async {
-                        if (value) {
-                          final ok = await SecurityService.authenticateBiometric();
-                          if (!ok) {
-                            if (!mounted || !context.mounted) return;
-                            AppAlerts.error(
-                              context,
-                              title: 'Face ID',
-                              text: 'Biometric verification failed.',
-                            );
-                            return;
-                          }
-                        }
-                        await SecurityService.setBiometricEnabled(value);
-                        if (!mounted || !context.mounted) return;
-                        setState(() => _faceId = value);
-                        AppAlerts.info(
-                          context,
-                          title: 'Preference Updated',
-                          text: 'Face ID ${value ? 'enabled' : 'disabled'}.',
-                        );
-                      },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.pin_outlined),
-                      title: const Text('PIN Code'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: _openPinDialog,
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.lock_reset_outlined),
-                      title: const Text('Change Password'),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: _openChangePasswordDialog,
                     ),
                     const Divider(height: 1),
                     ListTile(
@@ -539,27 +338,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       subtitle: const Text('0615270078'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: _openWhatsApp,
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      leading: const Icon(Icons.logout, color: Colors.red),
-                      title: const Text('Logout', style: TextStyle(color: Colors.red)),
-                      onTap: () async {
-                        final ok = await AppAlerts.confirmBool(
-                          context,
-                          title: 'Logout',
-                          text: 'Are you sure you want to logout?',
-                          confirmText: 'Logout',
-                        );
-                        if (!ok || !mounted || !context.mounted) return;
-                        AuthController.logout();
-                        if (!mounted || !context.mounted) return;
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                          (_) => false,
-                        );
-                      },
                     ),
                   ],
                 ),
